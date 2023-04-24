@@ -9,12 +9,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 
 	"golang.org/x/oauth2"
 )
 
 func init() {
-	log.SetOutput(os.Stdout)
+	log.SetOutput(os.Stderr)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 
@@ -131,19 +132,21 @@ func fetchPage(client *http.Client, pageToken string) (*page, error) {
 func main() {
 	ctx := context.Background()
 	client := loginServer(ctx, conf)
+	fmt.Println("Loading library...")
 	lib, err := fetchLibrary(client)
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("Downloading %d images\n", len(lib.Items))
+	fmt.Printf("Downloading %d images\n", len(lib.Items))
 	for _, item := range lib.Items {
+		fileName := strings.Replace(item.Filename, "/", "_", -1)
 		// if item is already downloaded, skip
-		if _, err := os.Stat(item.Filename); err == nil {
-			log.Printf("Skipping %s\n", item.Filename)
+		if _, err := os.Stat(fileName); err == nil {
+			fmt.Printf("\rSkipping %s", fileName)
 			continue
 		}
 
-		log.Printf("Downloading %s\n", item.Filename)
+		fmt.Printf("\rDownloading %s", fileName)
 		resp, err := client.Get(fmt.Sprintf("%s=d", item.BaseUrl))
 		if err != nil {
 			log.Fatal(err)
@@ -153,7 +156,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		if err := ioutil.WriteFile(item.Filename, body, 0644); err != nil {
+		if err := ioutil.WriteFile(fileName, body, 0644); err != nil {
 			log.Fatal(err)
 		}
 	}
