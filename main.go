@@ -129,6 +129,44 @@ func fetchPage(client *http.Client, pageToken string) (*page, error) {
 	return p, nil
 }
 
+func fetchItem(client *http.Client, item mediaItem) error {
+	fileName := strings.Replace(item.Filename, "/", "_", -1)
+	// if item is already downloaded, skip
+	if _, err := os.Stat(fileName); err == nil {
+		fmt.Printf("Skipping %s\n", fileName)
+		return nil
+	}
+
+	fmt.Printf("Downloading %s\n", fileName)
+	resp, err := client.Get(fmt.Sprintf("%s=d", item.BaseUrl))
+	if err != nil {
+		return err
+	}
+	// exit if response is not 200
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("response status: %s", resp.Status)
+	}
+	// save response body to file
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if err := ioutil.WriteFile(fileName, body, 0644); err != nil {
+		return err
+	}
+	return nil
+}
+
+// downloadWorker downloads items from the library
+// from the channel. It exits when the channel is closed.
+func downloadWorker(client *http.Client, ch <-chan mediaItem) {
+	for item := range ch {
+		if err := fetchItem(client, item); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
 func main() {
 	ctx := context.Background()
 	client := loginServer(ctx, conf)
@@ -138,26 +176,16 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Printf("Downloading %d images\n", len(lib.Items))
-	for _, item := range lib.Items {
-		fileName := strings.Replace(item.Filename, "/", "_", -1)
-		// if item is already downloaded, skip
-		if _, err := os.Stat(fileName); err == nil {
-			fmt.Printf("\rSkipping %s", fileName)
-			continue
-		}
+	// a worker pool of 6 workers downloading images
+	// concurrently
+	ch := make(chan mediaItem, 6)
+	defer close(ch)
 
-		fmt.Printf("\rDownloading %s", fileName)
-		resp, err := client.Get(fmt.Sprintf("%s=d", item.BaseUrl))
-		if err != nil {
-			log.Fatal(err)
-		}
-		// save response body to file
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			log.Fatal(err)
-		}
-		if err := ioutil.WriteFile(fileName, body, 0644); err != nil {
-			log.Fatal(err)
-		}
+	for i := 0; i < 6; i++ {
+		go downloadWorker(client, ch)
+	}
+	for _, item := range lib.Items {
+		// send items to the channel
+		ch <- item
 	}
 }
