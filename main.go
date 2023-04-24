@@ -137,6 +137,12 @@ func main() {
 	}
 	log.Printf("Downloading %d images\n", len(lib.Items))
 	for _, item := range lib.Items {
+		// if item is already downloaded, skip
+		if _, err := os.Stat(item.Filename); err == nil {
+			log.Printf("Skipping %s\n", item.Filename)
+			continue
+		}
+
 		log.Printf("Downloading %s\n", item.Filename)
 		resp, err := client.Get(fmt.Sprintf("%s=d", item.BaseUrl))
 		if err != nil {
@@ -150,6 +156,5 @@ func main() {
 		if err := ioutil.WriteFile(item.Filename, body, 0644); err != nil {
 			log.Fatal(err)
 		}
-		break
 	}
 }
