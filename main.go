@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 
 	"golang.org/x/oauth2"
@@ -58,17 +60,70 @@ func login(ctx context.Context, conf *oauth2.Config) *http.Client {
 	return conf.Client(ctx, tok)
 }
 
-func main() {
-	ctx := context.Background()
-	client := login(ctx, conf)
-	resp, err := client.Get("https://photoslibrary.googleapis.com/v1/mediaItems")
+type mediaItem struct {
+	Id          string `json:"id"`
+	Description string `json:"description"`
+	BaseUrl     string `json:"baseUrl"`
+	MimeType    string `json:"mimeType"`
+	Filename    string `json:"filename"`
+}
+
+type page struct {
+	Items         []mediaItem `json:"mediaItems"`
+	NextPageToken string      `json:"nextPageToken"`
+}
+
+type library struct {
+	Items []mediaItem
+}
+
+func fetchLibrary(client *http.Client) (*library, error) {
+	lib := &library{
+		Items: []mediaItem{},
+	}
+
+	nextPageToken := ""
+
+	for {
+		page, err := fetchPage(client, nextPageToken)
+		if err != nil {
+			return lib, err
+		}
+		lib.Items = append(lib.Items, page.Items...)
+		if page.NextPageToken == "" {
+			break
+		}
+		nextPageToken = page.NextPageToken
+	}
+	return lib, nil
+}
+
+func fetchPage(client *http.Client, pageToken string) (*page, error) {
+	photosListUrl, err := url.Parse("https://photoslibrary.googleapis.com/v1/mediaItems")
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
+	}
+	photosListUrl.RawQuery = fmt.Sprintf("pageToken=%s", pageToken)
+	resp, err := client.Get(photosListUrl.String())
+	if err != nil {
+		return nil, err
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
-	fmt.Println(string(body))
+	// decode body into a library struct
+	p := &page{}
+	if err := json.Unmarshal(body, p); err != nil {
+		return p, err
+	}
+	log.Println(p)
+	return p, nil
+}
+
+func main() {
+	ctx := context.Background()
+	client := login(ctx, conf)
+	fetchLibrary(client)
 }
