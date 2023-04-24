@@ -125,5 +125,24 @@ func fetchPage(client *http.Client, pageToken string) (*page, error) {
 func main() {
 	ctx := context.Background()
 	client := login(ctx, conf)
-	fetchLibrary(client)
+	lib, err := fetchLibrary(client)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Downloading %d images\n", len(lib.Items))
+	for _, item := range lib.Items {
+		log.Printf("Downloading %s\n", item.Filename)
+		resp, err := client.Get(fmt.Sprintf("%s=d", item.BaseUrl))
+		if err != nil {
+			log.Fatal(err)
+		}
+		// save response body to file
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := ioutil.WriteFile(item.Filename, body, 0644); err != nil {
+			log.Fatal(err)
+		}
+	}
 }
