@@ -29,34 +29,40 @@ var (
 			AuthURL:  "https://accounts.google.com/o/oauth2/v2/auth",
 			TokenURL: "https://oauth2.googleapis.com/token",
 		},
-		RedirectURL: "http://localhost",
+		RedirectURL: "http://localhost:8080",
 	}
 )
 
-// login uses the Google OAuth client credentials flow to
-// retrieve a token and create an authenticated HTTP client.
-// The HTTP client returned by login will automatically refresh
-// the token as necessary.
-func login(ctx context.Context, conf *oauth2.Config) *http.Client {
-
+// loginServer starts a server to handle the oauth2 callback
+// and returns the oauth2 client.
+func loginServer(ctx context.Context, conf *oauth2.Config) *http.Client {
+	// Start local server to handle auth callback.
+	ch := make(chan string)
+	srv := &http.Server{Addr: ":8080"}
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("You may now close this window."))
+		ch <- r.URL.Query().Get("code")
+		go srv.Shutdown(ctx)
+	})
+	go srv.ListenAndServe()
 	// Redirect user to consent page to ask for permission
 	// for the scopes specified above.
 	url := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
 	fmt.Printf("Visit the URL for the auth dialog: %v\n", url)
-
-	// Use the authorization code that is pushed to the redirect
-	// URL. Exchange will do the handshake to retrieve the
+	// Wait for code.
+	var code string
+	select {
+	case code = <-ch:
+	case <-ctx.Done():
+		log.Fatal(ctx.Err())
+	}
+	// Exchange will do the handshake to retrieve the
 	// initial access token. The HTTP Client returned by
 	// conf.Client will refresh the token as necessary.
-	var code string
-	if _, err := fmt.Scan(&code); err != nil {
-		log.Fatal(err)
-	}
 	tok, err := conf.Exchange(ctx, code)
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	return conf.Client(ctx, tok)
 }
 
@@ -124,7 +130,7 @@ func fetchPage(client *http.Client, pageToken string) (*page, error) {
 
 func main() {
 	ctx := context.Background()
-	client := login(ctx, conf)
+	client := loginServer(ctx, conf)
 	lib, err := fetchLibrary(client)
 	if err != nil {
 		log.Fatal(err)
@@ -144,5 +150,6 @@ func main() {
 		if err := ioutil.WriteFile(item.Filename, body, 0644); err != nil {
 			log.Fatal(err)
 		}
+		break
 	}
 }
